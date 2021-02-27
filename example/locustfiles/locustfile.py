@@ -1,15 +1,15 @@
 from locust import between, events, tag, task, HttpUser
 
-from locust_influxdb_listener import InfluxDBListener, InfluxDBSettings
+from locust_timestream_listener import TimestreamListener, TimestreamSettings
 
 
 @events.init.add_listener
 def on_locust_init(environment, **_kwargs):
     """
-    Hook event that enables starting an influxdb connection
+    Hook event that enables starting an timestream connection
     """
     # this settings matches the given docker-compose file
-    influxDBSettings = InfluxDBSettings(
+    timestreamSettings = TimestreamSettings(
         influx_host = 'localhost',
         influx_port = '8086',
         user = 'admin',
@@ -17,7 +17,7 @@ def on_locust_init(environment, **_kwargs):
         database = 'test-project'
     )
     # start listerner with the given configuration
-    InfluxDBListener(env=environment, influxDbSettings=influxDBSettings)
+    TimestreamListener(env=environment, timestreamSettings=timestreamSettings)
 
 class TestWebUser(HttpUser):
 

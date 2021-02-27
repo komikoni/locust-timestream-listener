@@ -1,6 +1,6 @@
-# locust-influxdb-boilerplate
+# locust-timestream-boilerplate
 
-LocustIO base project with a custom influxDB listener.
+LocustIO base project with a custom timestream listener.
 
 ## Instructions
 
@@ -34,7 +34,7 @@ locust
 
 The before command utilizes the `locust.conf` file to determine the test file and test execution configuration (i.e. url, number or users, etc).
 
-## InfluxDB with Grafana
+## Timestream with Grafana
 
 We have included a `docker-compose.yml` file that can be used to spin a reporting setup in case you don't have one.
 
@@ -48,8 +48,8 @@ docker-compose up
 
 Once grafana is running (by default on port: 3000) `https://localhost:3000` , you need to:
 
-* Connect to influxdb as the datasource:
-  * Host: https://influxdb:8086
+* Connect to timestream as the datasource:
+  * Host: https://timestream:8086
   * User: admin
   * Password: pass
 

@@ -4,14 +4,14 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="locust_influxdb_listener", # Replace with your own username
+    name="locust_timestream_listener", # Replace with your own username
     version="0.0.3",
     author="Pablo Calvo",
     author_email="pjcalvov@gmail.com",
-    description="Locust.io 1.X influxdb listener",
+    description="Locust.io 1.X timestream listener",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/hoodoo-digital/locust_influxdb_listener",
+    url="https://github.com/hoodoo-digital/locust_timestream_listener",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -20,7 +20,7 @@ setuptools.setup(
     ],
     install_requires=[
         'locust>=1.1.1',
-        'influxdb>=5.2.2',
+        'timestream>=5.2.2',
     ],
     python_requires='>=3.6',
 )

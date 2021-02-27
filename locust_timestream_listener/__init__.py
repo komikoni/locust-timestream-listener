@@ -5,16 +5,16 @@ import sys
 import traceback
 from datetime import datetime
 
-from influxdb import InfluxDBClient
+from timestream import TimestreamClient
 from locust.exception import InterruptTaskSet
 from requests.exceptions import HTTPError
 import locust.env
 
 
 log = logging.getLogger('locust_influx')
-class InfluxDBSettings:
+class TimestreamSettings:
     """
-    Store influxdb settings
+    Store timestream settings
     """
     def __init__(
         self, 
@@ -33,27 +33,27 @@ class InfluxDBSettings:
         self.interval_ms = interval_ms
         
 
-class InfluxDBListener: 
+class TimestreamListener: 
     """
-    Events listener that writes locust events to the given influxdb connection
+    Events listener that writes locust events to the given timestream connection
     """
     
     def __init__(
         self,
         env: locust.env.Environment,
-        influxDbSettings: InfluxDBSettings
+        timestreamSettings: TimestreamSettings
     ):
 
         # flush related attributes
         self.cache = []
         self.stop_flag = False
-        self.interval_ms = influxDbSettings.interval_ms
-        # influxdb settings 
+        self.interval_ms = timestreamSettings.interval_ms
+        # timestream settings 
         try:
-            self.influxdb_client = InfluxDBClient(influxDbSettings.influx_host, influxDbSettings.influx_port, influxDbSettings.user, influxDbSettings.pwd, influxDbSettings.database)
-            self.influxdb_client.create_database(influxDbSettings.database)
+            self.timestream_client = TimestreamClient(timestreamSettings.influx_host, timestreamSettings.influx_port, timestreamSettings.user, timestreamSettings.pwd, timestreamSettings.database)
+            self.timestream_client.create_database(timestreamSettings.database)
         except:
-           logging.exception('Could not connect to influxdb')
+           logging.exception('Could not connect to timestream')
            return 
 
         # determine if worker or master
@@ -110,7 +110,7 @@ class InfluxDBListener:
 
     def __register_event(self, node_id: str, user_count: int, event: str, **_kwargs) -> None:
         """
-        Persist locust event such as hatching started or stopped to influxdb.
+        Persist locust event such as hatching started or stopped to timestream.
         Append user_count in case that it exists
 
         :param node_id: The id of the node reporting the event.
@@ -132,7 +132,7 @@ class InfluxDBListener:
 
     def __listen_for_requests_events(self, node_id, measurement, request_type, name, response_time, response_length, success, exception) -> None:
         """
-        Persist request information to influxdb.
+        Persist request information to timestream.
 
         :param node_id: The id of the node reporting the event.
         :param measurement: The measurement where to save this point.
@@ -161,7 +161,7 @@ class InfluxDBListener:
 
     def __listen_for_locust_errors(self, node_id, user_instance, exception: Exception = None, tb = None) -> None:
         """
-        Persist locust errors to InfluxDB.
+        Persist locust errors to Timestream.
 
         :param node_id: The id of the node reporting the error.
         :return: None
@@ -185,18 +185,18 @@ class InfluxDBListener:
         """
         Background job that puts the points into the cache to be flushed according tot he interval defined.
 
-        :param influxdb_client:
+        :param timestream_client:
         :param interval:
         :return: None
         """
         log.info('Flush worker started.')
         while not self.stop_flag:
-            self.__flush_points(self.influxdb_client)
+            self.__flush_points(self.timestream_client)
             gevent.sleep(self.interval_ms / 1000)
 
     def __make_data_point(self, measurement: str, tags: dict, fields: dict, time: datetime) -> dict:
         """
-        Create a list with a single point to be saved to influxdb.
+        Create a list with a single point to be saved to timestream.
 
         :param measurement: The measurement where to save this point.
         :param tags: Dictionary of tags to be saved in the measurement.
@@ -209,22 +209,22 @@ class InfluxDBListener:
     def last_flush_on_quitting(self):
         self.stop_flag = True
         self.flush_worker.join()
-        self.__flush_points(self.influxdb_client)
+        self.__flush_points(self.timestream_client)
 
 
-    def __flush_points(self, influxdb_client: InfluxDBClient) -> None:
+    def __flush_points(self, timestream_client: TimestreamClient) -> None:
         """
-        Write the cached data points to influxdb
+        Write the cached data points to timestream
 
-        :param influxdb_client: An instance of InfluxDBClient
+        :param timestream_client: An instance of TimestreamClient
         :return: None
         """
         log.debug(f'Flushing points {len(self.cache)}')
         to_be_flushed = self.cache
         self.cache = []
-        success = influxdb_client.write_points(to_be_flushed)
+        success = timestream_client.write_points(to_be_flushed)
         if not success:
-            log.error('Failed to write points to influxdb.')
+            log.error('Failed to write points to timestream.')
             # If failed for any reason put back into the beginning of cache
             self.cache.insert(0, to_be_flushed)
 

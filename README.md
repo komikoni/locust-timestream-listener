@@ -1,15 +1,15 @@
-# locust-influxdb-listener
+# [WIP] locust-timestream-listener (This still doesn't work!)
 
-Package that uses locust 'event' hooks to push locust related events to an influxDB database.
+Package that uses locust 'event' hooks to push locust related events to an timestream database.
 
 ## Installation
 
 Install using your favorite package installer:
 
 ```bash
-pip install locust-influxdb-listener
+pip install locust-timestream-listener
 # or
-easy_install locust-influxdb-listener
+easy_install locust-timestream-listener
 ```
 
 
@@ -19,15 +19,15 @@ Import the library and use the `event.init` hook to register the listener.
 
 ```python
 ...
-from locust_influxdb_listener import InfluxDBListener, InfluxDBSettings
+from locust_timestream_listener import TimestreamListener, TimestreamSettings
 
 @events.init.add_listener
 def on_locust_init(environment, **_kwargs):
     """
-    Hook event that enables starting an influxdb connection
+    Hook event that enables starting an timestream connection
     """
     # this settings matches the given docker-compose file
-    influxDBSettings = InfluxDBSettings(
+    timestreamSettings = TimestreamSettings(
         influx_host = 'localhost',
         influx_port = '8086',
         user = 'admin',
@@ -35,15 +35,15 @@ def on_locust_init(environment, **_kwargs):
         database = 'test-project'
     )
     # start listerner with the given configuration
-    InfluxDBListener(env=environment, influxDbSettings=influxDBSettings)
+    TimestreamListener(env=environment, timestreamSettings=timestreamSettings)
 ...
 ```
 
 ### Example
 
-You can find a working example under the [examples folder](https://github.com/hoodoo-digital/locust-influxdb-listener/blob/main/example)
+You can find a working example under the [examples folder](https://github.com/hoodoo-digital/locust-timestream-listener/blob/main/example)
 
-*InfluxDB with Grafana*
+*Timestream with Grafana*
 
 We have included a working example `docker-compose.yml` file that can be used to spin a reporting setup in case you don't have one.
 
@@ -57,8 +57,8 @@ docker-compose up
 
 Once grafana is running (by default on port: 3000) `https://localhost:3000` , you need to:
 
-* Connect to influxdb as the datasource:
-  * Host: https://influxdb:8086
+* Connect to timestream as the datasource:
+  * Host: https://timestream:8086
   * User: admin
   * Password: pass
 

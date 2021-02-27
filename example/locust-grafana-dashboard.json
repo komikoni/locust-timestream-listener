@@ -1368,8 +1368,8 @@
         {
           "current": {
             "selected": false,
-            "text": "InfluxDB-1",
-            "value": "InfluxDB-1"
+            "text": "Timestream-1",
+            "value": "Timestream-1"
           },
           "hide": 0,
           "includeAll": false,
@@ -1377,7 +1377,7 @@
           "multi": false,
           "name": "DB_SOURCE",
           "options": [],
-          "query": "influxdb",
+          "query": "timestream",
           "refresh": 1,
           "regex": "/.*/",
           "skipUrlSync": false,
