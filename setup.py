@@ -8,7 +8,7 @@ setuptools.setup(
     version="0.0.1",
     author="komikoni",
     author_email="komikoni+github@gmail.com",
-    description="Locust.io 1.X timestream listener",
+    description="Locust.io 1.X timestream listener. This is a fork of locust_influxdb_listener and modified",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/komikoni/locust-timestream-listener",

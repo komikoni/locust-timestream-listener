@@ -3,7 +3,8 @@ import gevent
 import logging
 import sys
 import traceback
-from datetime import datetime
+# from datetime import datetime
+import time
 
 import boto3
 from botocore.config import Config
@@ -202,17 +203,19 @@ class TimestreamListener:
         :param event: The event name or description.
         """
 
-        time = datetime.utcnow()
+        # time = datetime.utcnow()
         tags = {
+            'node_id': node_id,  # fields to tags
+            'event': event  # fields to tags
         }
         fields = {
-            'node_id': node_id,
-            'event': event,
+            # 'node_id': node_id,
+            # 'event': event,
             'user_count': user_count
         }
 
-        point = self.__make_data_point(tags, fields, time)
-        # self.cache[self.timestreamSettings.events_table].append(point) #TODO WIP Debuging
+        point = self.__make_data_point(tags, fields)
+        self.cache[self.timestreamSettings.events_table].append(point)
 
     # def __listen_for_requests_events(self, node_id, measurement, request_type, name, response_time, response_length, success, exception) -> None:
     def __listen_for_requests_events(self, node_id, request_type, name, response_time, response_length, success, exception) -> None:
@@ -224,7 +227,7 @@ class TimestreamListener:
         :param success: Flag the info to as successful request or not
         """
 
-        time = datetime.utcnow()
+        # time = datetime.utcnow()
         tags = {
             'node_id': node_id,
             'request_type': request_type,
@@ -241,7 +244,7 @@ class TimestreamListener:
             'response_length': response_length,
             'counter': 1,  # TODO: Review the need of this field
         }
-        point = self.__make_data_point(tags, fields, time)
+        point = self.__make_data_point(tags, fields)
         self.cache[self.timestreamSettings.requests_table].append(point)
 
     def __listen_for_locust_errors(self, node_id, user_instance, exception: Exception = None, tb=None) -> None:
@@ -252,7 +255,7 @@ class TimestreamListener:
         :return: None
         """
 
-        time = datetime.utcnow()
+        # time = datetime.utcnow()
         tags = {
             'exception_tag': repr(exception)
         }
@@ -262,7 +265,7 @@ class TimestreamListener:
             'exception': repr(exception),
             'traceback': "".join(traceback.format_tb(tb)),
         }
-        point = self.__make_data_point(tags, fields, time)
+        point = self.__make_data_point(tags, fields)
         self.cache[self.timestreamSettings.exceptions_table].append(point)
 
     def __flush_cached_points_worker(self) -> None:
@@ -279,7 +282,7 @@ class TimestreamListener:
             gevent.sleep(self.interval_ms / 1000)
 
     # def __make_data_point(self, measurement: str, tags: dict, fields: dict, time: datetime) -> dict:
-    def __make_data_point(self, tags: dict, fields: dict, time: datetime) -> dict:
+    def __make_data_point(self, tags: dict, fields: dict) -> dict:
         """
         Create a list with a single point to be saved to timestream.
 
@@ -290,8 +293,8 @@ class TimestreamListener:
         """
         # return {"measurement": measurement, "tags": tags, "time": time, "fields": fields}
 
-        current_time = str(int(round(time.timestamp()*1000)))
-        # current_time = str(int(round(time.time() * 1000)))
+        # current_time = str(int(round(time.timestamp()*1000)))
+        current_time = str(int(time.time() * 1000))
         version = int(current_time)
 
         dimensions = [{'Name': k, 'Value': str(v)} for k, v in tags.items()]
@@ -305,6 +308,9 @@ class TimestreamListener:
 
         records = [{'MeasureName': k, 'MeasureValue': str(v)}
                    for k, v in fields.items()]
+
+        # pprint.pprint(common_attributes)
+        # pprint.pprint(records)
 
         return {"common_attributes": common_attributes, "records": records}
 
@@ -337,10 +343,15 @@ class TimestreamListener:
                                                                   TableName=table_name,
                                                                   Records=records,
                                                                   CommonAttributes=common_attributes)
+                except self.timestream_client.exceptions.RejectedRecordsException as err:
+                    log.error("RejectedRecords: ", err)
+                    for rr in err.response["RejectedRecords"]:
+                        print("Rejected Index " +
+                              str(rr["RecordIndex"]) + ": " + rr["Reason"])
+                    log.error("Other records were written successfully. ")
                 except Exception as err:
                     log.error('Failed to write records to timestream.')
                     pprint.pprint(points)
                     log.error("Error:", err)
                     # If failed for any reason put back into the beginning of cache
-                    # self.cache[table_name].insert(0, to_be_flushed[table_name])
                     self.cache[table_name].append(points)
