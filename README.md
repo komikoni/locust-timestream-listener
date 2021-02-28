@@ -28,10 +28,6 @@ def on_locust_init(environment, **_kwargs):
     """
     # this settings matches the given docker-compose file
     timestreamSettings = TimestreamSettings(
-        influx_host = 'localhost',
-        influx_port = '8086',
-        user = 'admin',
-        pwd = 'pass',
         database = 'test-project'
     )
     # start listerner with the given configuration

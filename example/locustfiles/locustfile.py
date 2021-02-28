@@ -1,5 +1,7 @@
 from locust import between, events, tag, task, HttpUser
 
+import sys,os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../')) #TODO pip regist
 from locust_timestream_listener import TimestreamListener, TimestreamSettings
 
 
@@ -10,11 +12,7 @@ def on_locust_init(environment, **_kwargs):
     """
     # this settings matches the given docker-compose file
     timestreamSettings = TimestreamSettings(
-        influx_host = 'localhost',
-        influx_port = '8086',
-        user = 'admin',
-        pwd = 'pass',
-        database = 'test-project'
+        database = 'locust-result-1'
     )
     # start listerner with the given configuration
     TimestreamListener(env=environment, timestreamSettings=timestreamSettings)

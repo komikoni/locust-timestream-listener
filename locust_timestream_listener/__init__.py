@@ -5,39 +5,58 @@ import sys
 import traceback
 from datetime import datetime
 
-from timestream import TimestreamClient
+import boto3
+from botocore.config import Config
 from locust.exception import InterruptTaskSet
 from requests.exceptions import HTTPError
 import locust.env
+import pprint
+
+log = logging.getLogger('locust_timestream')
 
 
-log = logging.getLogger('locust_influx')
 class TimestreamSettings:
     """
     Store timestream settings
     """
+
     def __init__(
-        self, 
-        influx_host: str = 'localhost', 
-        influx_port: int = 8086, 
-        user: str = 'admin', 
-        pwd:str = 'pass', 
+        self,
+        region_name: str = 'us-east-1',
+        # Recommended Timestream write client SDK configuration:
+        #  - Set SDK retry count to 10.
+        #  - Use SDK DEFAULT_BACKOFF_STRATEGY
+        #  - Set RequestTimeout to 20 seconds .
+        #  - Set max connections to 5000 or higher.
+        read_timeout: int = 20,
+        max_pool_connections: int = 5000,
+        max_attempts: int = 10,
         database: str = 'default',
+        ht_ttl_hours: int = 24,
+        ct_ttl_days: int = 7,
+        events_table: str = 'locust_events',
+        requests_table: str = 'locust_requests',
+        exceptions_table: str = 'locust_exceptions',
         interval_ms: int = 1000
     ):
-        self.influx_host = influx_host
-        self.influx_port = influx_port
-        self.user = user
-        self.pwd = pwd
+        self.region_name = region_name
+        self.read_timeout = read_timeout
+        self.max_pool_connections = max_pool_connections
+        self.max_attempts = max_attempts
         self.database = database
+        self.ht_ttl_hours = ht_ttl_hours
+        self.ct_ttl_days = ct_ttl_days
+        self.events_table = events_table
+        self.requests_table = requests_table
+        self.exceptions_table = exceptions_table
         self.interval_ms = interval_ms
-        
 
-class TimestreamListener: 
+
+class TimestreamListener:
     """
     Events listener that writes locust events to the given timestream connection
     """
-    
+
     def __init__(
         self,
         env: locust.env.Environment,
@@ -45,16 +64,79 @@ class TimestreamListener:
     ):
 
         # flush related attributes
-        self.cache = []
+        self.cache = {}
+        self.cache[timestreamSettings.events_table] = []
+        self.cache[timestreamSettings.requests_table] = []
+        self.cache[timestreamSettings.exceptions_table] = []
         self.stop_flag = False
         self.interval_ms = timestreamSettings.interval_ms
-        # timestream settings 
+        # timestream settings
+        self.timestreamSettings = timestreamSettings
         try:
-            self.timestream_client = TimestreamClient(timestreamSettings.influx_host, timestreamSettings.influx_port, timestreamSettings.user, timestreamSettings.pwd, timestreamSettings.database)
-            self.timestream_client.create_database(timestreamSettings.database)
+            self.session = boto3.Session(
+                region_name=timestreamSettings.region_name)
+            self.timestream_client = self.session.client('timestream-write',
+                                                         config=Config(read_timeout=timestreamSettings.read_timeout,
+                                                                       max_pool_connections=timestreamSettings.max_pool_connections,
+                                                                       retries={'max_attempts': timestreamSettings.max_attempts}))
         except:
-           logging.exception('Could not connect to timestream')
-           return 
+            logging.exception('Could not connect to timestream')
+            return
+
+        # Create Database
+        try:
+            self.timestream_client.create_database(
+                DatabaseName=timestreamSettings.database)
+            logging.exception(
+                "Database [%s] created successfully." % timestreamSettings.database)
+        except self.timestream_client.exceptions.ConflictException:
+            logging.exception(
+                "Database [%s] exists. Skipping database creation" % timestreamSettings.database)
+        except Exception as err:
+            logging.exception("Create database failed:", err)
+
+        retention_properties = {
+            'MemoryStoreRetentionPeriodInHours': timestreamSettings.ht_ttl_hours,
+            'MagneticStoreRetentionPeriodInDays': timestreamSettings.ct_ttl_days
+        }
+        # Create Events Tables
+        try:
+            self.timestream_client.create_table(DatabaseName=timestreamSettings.database,
+                                                TableName=timestreamSettings.events_table,
+                                                RetentionProperties=retention_properties)
+            print("Table [%s] successfully created." %
+                  timestreamSettings.events_table)
+        except self.timestream_client.exceptions.ConflictException:
+            print("Table [%s] exists on database [%s]. Skipping table creation" % (
+                timestreamSettings.events_table, timestreamSettings.database))
+        except Exception as err:
+            print("Create table failed:", err)
+
+        # Create Requests Tables
+        try:
+            self.timestream_client.create_table(DatabaseName=timestreamSettings.database,
+                                                TableName=timestreamSettings.requests_table,
+                                                RetentionProperties=retention_properties)
+            print("Table [%s] successfully created." %
+                  timestreamSettings.requests_table)
+        except self.timestream_client.exceptions.ConflictException:
+            print("Table [%s] exists on database [%s]. Skipping table creation" % (
+                timestreamSettings.requests_table, timestreamSettings.database))
+        except Exception as err:
+            print("Create table failed:", err)
+
+        # Create Exceptions Tables
+        try:
+            self.timestream_client.create_table(DatabaseName=timestreamSettings.database,
+                                                TableName=timestreamSettings.exceptions_table,
+                                                RetentionProperties=retention_properties)
+            print("Table [%s] successfully created." %
+                  timestreamSettings.exceptions_table)
+        except self.timestream_client.exceptions.ConflictException:
+            print("Table [%s] exists on database [%s]. Skipping table creation" % (
+                timestreamSettings.exceptions_table, timestreamSettings.database))
+        except Exception as err:
+            print("Create table failed:", err)
 
         # determine if worker or master
         self.node_id = 'local'
@@ -64,16 +146,16 @@ class TimestreamListener:
             # TODO: Get real ID of slaves form locust somehow
             self.node_id = 'worker'
 
-        # start background event to push data to influx
+        # start background event to push data to timestream
         self.flush_worker = gevent.spawn(self.__flush_cached_points_worker)
         self.test_start(0)
-        
+
         events = env.events
-        
+
         # requests
         events.request_success.add_listener(self.request_success)
         events.request_failure.add_listener(self.request_failure)
-        # events   
+        # events
         events.test_stop.add_listener(self.test_stop)
         events.user_error.add_listener(self.user_error)
         events.spawning_complete.add_listener(self.spawning_complete)
@@ -82,10 +164,12 @@ class TimestreamListener:
         atexit.register(self.quitting)
 
     def request_success(self, request_type, name, response_time, response_length, **_kwargs) -> None:
-        self.__listen_for_requests_events(self.node_id, 'locust_requests', request_type, name, response_time, response_length, True, None)
+        self.__listen_for_requests_events(
+            self.node_id, request_type, name, response_time, response_length, True, None)
 
     def request_failure(self, request_type, name, response_time, response_length, exception, **_kwargs) -> None:
-        self.__listen_for_requests_events(self.node_id, 'locust_requests', request_type, name, response_time, response_length, False, exception)
+        self.__listen_for_requests_events(
+            self.node_id, request_type, name, response_time, response_length, False, exception)
 
     def spawning_complete(self, user_count) -> None:
         self.__register_event(self.node_id, user_count, 'spawning_complete')
@@ -100,9 +184,10 @@ class TimestreamListener:
 
     def test_stop(self, user_count) -> None:
         self.__register_event(self.node_id, 0, 'test_stopped')
-    
+
     def user_error(self, user_instance, exception, tb, **_kwargs) -> None:
-        self.__listen_for_locust_errors(self.node_id, user_instance, exception, tb)
+        self.__listen_for_locust_errors(
+            self.node_id, user_instance, exception, tb)
 
     def quitting(self, **_kwargs) -> None:
         self.__register_event(self.node_id, 0, 'quitting')
@@ -126,11 +211,11 @@ class TimestreamListener:
             'user_count': user_count
         }
 
-        point = self.__make_data_point('locust_events', tags, fields, time)
-        self.cache.append(point)
+        point = self.__make_data_point(tags, fields, time)
+        # self.cache[self.timestreamSettings.events_table].append(point) #TODO WIP Debuging
 
-
-    def __listen_for_requests_events(self, node_id, measurement, request_type, name, response_time, response_length, success, exception) -> None:
+    # def __listen_for_requests_events(self, node_id, measurement, request_type, name, response_time, response_length, success, exception) -> None:
+    def __listen_for_requests_events(self, node_id, request_type, name, response_time, response_length, success, exception) -> None:
         """
         Persist request information to timestream.
 
@@ -156,10 +241,10 @@ class TimestreamListener:
             'response_length': response_length,
             'counter': 1,  # TODO: Review the need of this field
         }
-        point = self.__make_data_point(measurement, tags, fields, time)
-        self.cache.append(point)
+        point = self.__make_data_point(tags, fields, time)
+        self.cache[self.timestreamSettings.requests_table].append(point)
 
-    def __listen_for_locust_errors(self, node_id, user_instance, exception: Exception = None, tb = None) -> None:
+    def __listen_for_locust_errors(self, node_id, user_instance, exception: Exception = None, tb=None) -> None:
         """
         Persist locust errors to Timestream.
 
@@ -177,9 +262,8 @@ class TimestreamListener:
             'exception': repr(exception),
             'traceback': "".join(traceback.format_tb(tb)),
         }
-        point = self.__make_data_point('locust_exceptions', tags, fields, time)
-        self.cache.append(point)
-
+        point = self.__make_data_point(tags, fields, time)
+        self.cache[self.timestreamSettings.exceptions_table].append(point)
 
     def __flush_cached_points_worker(self) -> None:
         """
@@ -194,7 +278,8 @@ class TimestreamListener:
             self.__flush_points(self.timestream_client)
             gevent.sleep(self.interval_ms / 1000)
 
-    def __make_data_point(self, measurement: str, tags: dict, fields: dict, time: datetime) -> dict:
+    # def __make_data_point(self, measurement: str, tags: dict, fields: dict, time: datetime) -> dict:
+    def __make_data_point(self, tags: dict, fields: dict, time: datetime) -> dict:
         """
         Create a list with a single point to be saved to timestream.
 
@@ -203,16 +288,32 @@ class TimestreamListener:
         :param fields: Dictionary of field to be saved to measurement.
         :param time: The time os this point.
         """
-        return {"measurement": measurement, "tags": tags, "time": time, "fields": fields}
+        # return {"measurement": measurement, "tags": tags, "time": time, "fields": fields}
 
+        current_time = str(int(round(time.timestamp()*1000)))
+        # current_time = str(int(round(time.time() * 1000)))
+        version = int(current_time)
+
+        dimensions = [{'Name': k, 'Value': str(v)} for k, v in tags.items()]
+
+        common_attributes = {
+            'Dimensions': dimensions,
+            'MeasureValueType': 'DOUBLE',
+            'Time': current_time,
+            'Version': version
+        }
+
+        records = [{'MeasureName': k, 'MeasureValue': str(v)}
+                   for k, v in fields.items()]
+
+        return {"common_attributes": common_attributes, "records": records}
 
     def last_flush_on_quitting(self):
         self.stop_flag = True
         self.flush_worker.join()
         self.__flush_points(self.timestream_client)
 
-
-    def __flush_points(self, timestream_client: TimestreamClient) -> None:
+    def __flush_points(self, timestream_client) -> None:
         """
         Write the cached data points to timestream
 
@@ -221,10 +322,25 @@ class TimestreamListener:
         """
         log.debug(f'Flushing points {len(self.cache)}')
         to_be_flushed = self.cache
-        self.cache = []
-        success = timestream_client.write_points(to_be_flushed)
-        if not success:
-            log.error('Failed to write points to timestream.')
-            # If failed for any reason put back into the beginning of cache
-            self.cache.insert(0, to_be_flushed)
+        self.cache = {}
+        self.cache[self.timestreamSettings.events_table] = []
+        self.cache[self.timestreamSettings.requests_table] = []
+        self.cache[self.timestreamSettings.exceptions_table] = []
 
+        # pprint.pprint(to_be_flushed)
+        for table_name in to_be_flushed.keys():
+            for points in to_be_flushed[table_name]:
+                records = points["records"]
+                common_attributes = points["common_attributes"]
+                try:
+                    result = self.timestream_client.write_records(DatabaseName=self.timestreamSettings.database,
+                                                                  TableName=table_name,
+                                                                  Records=records,
+                                                                  CommonAttributes=common_attributes)
+                except Exception as err:
+                    log.error('Failed to write records to timestream.')
+                    pprint.pprint(points)
+                    log.error("Error:", err)
+                    # If failed for any reason put back into the beginning of cache
+                    # self.cache[table_name].insert(0, to_be_flushed[table_name])
+                    self.cache[table_name].append(points)
